@@ -2,19 +2,19 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>英语单词检测系统</title>
+    <title>英语单词检测系统（云端版）</title>
     <script src="https://cdn.bootcdn.net/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         *{margin:0;padding:0;box-sizing:border-box;font-family:微软雅黑}
-        body{padding:20px;max-width:1200px;margin:0 auto}
+        body{padding:20px;max-width:1200px;margin:0 auto;background:#f7f9fc}
         .btn{padding:8px 16px;margin:5px;border:none;border-radius:5px;cursor:pointer}
         .blue{background:#2d8cf0;color:white}
         .green{background:#19be6b;color:white}
         .orange{background:#ff9f43;color:white}
         .red{background:#f56c6c;color:white}
-        .box{border:1px solid #ddd;border-radius:8px;padding:15px;margin:10px 0}
+        .box{border:1px solid #ddd;border-radius:8px;padding:15px;margin:10px 0;background:white}
         .title{text-align:center;margin:20px 0}
-        .login{max-width:400px;margin:50px auto;padding:30px;border:1px solid #ddd;border-radius:10px}
+        .login{max-width:400px;margin:50px auto;padding:30px;border:1px solid #ddd;border-radius:10px;background:white}
         .login input{width:100%;padding:10px;margin:15px 0}
         .group{width:24%;display:inline-block;vertical-align:top;margin:5px}
         .student{padding:10px;margin:5px 0;text-align:center;border-radius:5px;cursor:pointer}
@@ -29,6 +29,7 @@
 
 <button class="btn blue" onclick="showTeacher()">教师页面</button>
 <button class="btn green" onclick="showParent()">家长页面</button>
+<button class="btn red" onclick="refreshCloudData()" style="float:right">刷新云端数据</button>
 
 <!-- 教师登录 -->
 <div id="loginPage" class="login">
@@ -40,7 +41,7 @@
 
 <!-- 教师管理页 -->
 <div id="teacherPage" style="display:none">
-    <h2 class="title">教师管理</h2>
+    <h2 class="title">教师管理（云端版）</h2>
     <div class="box">
         <button class="btn orange" onclick="importStudent()">导入学生Excel</button>
         <button class="btn orange" onclick="importWord()">导入单词Excel</button>
@@ -73,16 +74,59 @@
 </div>
 
 <script>
-// ========== 配置 ==========
+// ======================================
+// 云端存储（免费JSONBIN）
+// ======================================
+const CLOUD_ID = "fdf7e965-732c-436d-b90b-d57f81a61544";
+const CLOUD_KEY = "$2a$10$YlH4K5w/rCR.ohYwD0xdQeQyVQRNH0lxnNQ0nVh2aG5tN9H2G5O2S";
 const PASSWORD = "123456";
-let students = JSON.parse(localStorage.getItem("students")) || [];
-let words = JSON.parse(localStorage.getItem("words")) || [];
-let errors = JSON.parse(localStorage.getItem("errors")) || {};
+
+let students = [];
+let words = [];
+let errors = {};
 let currentStu = "";
 let index = 0;
 let correct = 0;
 
-// ========== 页面切换 ==========
+// ======================================
+// 云端读取 / 保存
+// ======================================
+async function loadCloud() {
+    try {
+        let res = await fetch("https://api.jsonbin.io/v3/b/"+CLOUD_ID+"/latest", {
+            headers: { "X-Master-Key": CLOUD_KEY }
+        });
+        let data = await res.json();
+        students = data.record.students || [];
+        words = data.record.words || [];
+        errors = data.record.errors || {};
+        render();
+    } catch(e) {
+        alert("云端加载失败");
+    }
+}
+
+async function saveCloud() {
+    try {
+        await fetch("https://api.jsonbin.io/v3/b/"+CLOUD_ID, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Master-Key": CLOUD_KEY
+            },
+            body: JSON.stringify({ students, words, errors })
+        });
+    }catch(e){}
+}
+
+function refreshCloudData() {
+    loadCloud();
+    alert("已刷新云端数据！");
+}
+
+// ======================================
+// 页面切换
+// ======================================
 function showTeacher(){
     document.getElementById("loginPage").style.display="block";
     document.getElementById("teacherPage").style.display="none";
@@ -95,7 +139,9 @@ function showParent(){
     render();
 }
 
-// ========== 登录 ==========
+// ======================================
+// 登录
+// ======================================
 function login(){
     let val = document.getElementById("pwd").value;
     if(val === PASSWORD){
@@ -107,53 +153,59 @@ function login(){
     }
 }
 
-// ========== 清空所有数据 ==========
-function clearAllData(){
-    if(!confirm("确定清空所有数据？学生、单词、记录将全部重置！")) return;
+// ======================================
+// 清空数据
+// ======================================
+async function clearAllData(){
+    if(!confirm("确定清空云端所有数据？")) return;
     students = [];
     words = [];
     errors = {};
-    localStorage.removeItem("students");
-    localStorage.removeItem("words");
-    localStorage.removeItem("errors");
-    alert("已清空所有数据！");
+    await saveCloud();
+    alert("已清空！");
     render();
 }
 
-// ========== 导入学生 ==========
+// ======================================
+// 导入学生
+// ======================================
 function importStudent(){
     document.getElementById("fileStudent").click();
     document.getElementById("fileStudent").onchange=e=>{
         let reader = new FileReader();
-        reader.onload=ev=>{
+        reader.onload=async ev=>{
             let wb = XLSX.read(new Uint8Array(ev.target.result),{type:"array"});
             let arr = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1});
             students = arr.filter(i=>i[0]).map(i=>({name:i[0].trim(),done:false,rate:"0%"}));
-            localStorage.setItem("students",JSON.stringify(students));
-            alert("导入成功！");
+            await saveCloud();
+            alert("导入成功（已保存到云端）！");
             render();
         }
         reader.readAsArrayBuffer(e.target.files[0]);
     }
 }
 
-// ========== 导入单词 ==========
+// ======================================
+// 导入单词
+// ======================================
 function importWord(){
     document.getElementById("fileWord").click();
     document.getElementById("fileWord").onchange=e=>{
         let reader = new FileReader();
-        reader.onload=ev=>{
+        reader.onload=async ev=>{
             let wb = XLSX.read(new Uint8Array(ev.target.result),{type:"array"});
             let arr = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1});
             words = arr.filter(i=>i[0]&&i[1]).map(i=>({en:i[0].trim(),cn:i[1].trim()}));
-            localStorage.setItem("words",JSON.stringify(words));
-            alert("导入成功！");
+            await saveCloud();
+            alert("导入成功（已保存到云端）！");
         }
         reader.readAsArrayBuffer(e.target.files[0]);
     }
 }
 
-// ========== 渲染学生 ==========
+// ======================================
+// 渲染学生
+// ======================================
 function render(){
     let container = document.getElementById("groupContainer");
     container.innerHTML = "";
@@ -186,7 +238,9 @@ function renderGroup(g,num){
     document.getElementById("groupContainer").appendChild(div);
 }
 
-// ========== 开始测试 ==========
+// ======================================
+// 开始测试
+// ======================================
 function startTest(name){
     if(words.length===0){alert("请先导入单词！");return}
     currentStu = name;
@@ -200,7 +254,7 @@ function showWord(){
     if(index >= words.length){
         let rate = Math.round(correct/words.length*100)+"%";
         students = students.map(s=>s.name===currentStu ? {...s,done:true,rate:rate} : s);
-        localStorage.setItem("students",JSON.stringify(students));
+        saveCloud();
         document.getElementById("testModal").style.display="none";
         alert("检测完成！正确率："+rate);
         render();
@@ -210,20 +264,22 @@ function showWord(){
     document.getElementById("answer").value = "";
 }
 
-function next(){
+async function next(){
     let ans = document.getElementById("answer").value.trim().toLowerCase();
     let right = words[index].en.toLowerCase();
     if(ans !== right){
         errors[right] = (errors[right]||0)+1;
-        localStorage.setItem("errors",JSON.stringify(errors));
     }else{
         correct++;
     }
     index++;
+    await saveCloud();
     showWord();
 }
 
-// ========== 错题统计 ==========
+// ======================================
+// 错题统计
+// ======================================
 function renderErrors(){
     let list = document.getElementById("errorList");
     list.innerHTML = "";
@@ -234,8 +290,11 @@ function renderErrors(){
     })
 }
 
-// 默认打开家长页
-window.onload = showParent;
+// 启动
+window.onload = async function(){
+    await loadCloud();
+    showParent();
+}
 </script>
 </body>
 </html>
